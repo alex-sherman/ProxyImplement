@@ -3,47 +3,45 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace InterfaceProxy
 {
-    public class ProxyImplement
+    public abstract class ProxyImplement
     {
         private const MethodAttributes ImplicitImplementation =
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig;
-        public virtual void Intercept()
+        static MethodInfo interceptInfo = typeof(ProxyImplement).GetMethod("intercept", BindingFlags.Instance | BindingFlags.NonPublic,
+                null, new Type[] { typeof(string), typeof(List<object>) }, null);
+        static MethodInfo interceptInfoVoid = typeof(ProxyImplement).GetMethod("interceptVoid", BindingFlags.Instance | BindingFlags.NonPublic,
+                null, new Type[] { typeof(string), typeof(List<object>) }, null);
+        public abstract object Intercept(string methodName, object[] args);
+        protected T intercept<T>(string methodName, List<object> args)
         {
+            object output = Intercept(methodName, args.ToArray());
+            if (output == null)
+                return default(T);
+            return (T)output;
         }
-        public static T HookUp<T>()
+        protected void interceptVoid(string methodName, List<object> args)
         {
+            Intercept(methodName, args.ToArray());
+        }
+        public static T HookUp<T, U>() where U : ProxyImplement
+        {
+            Type target = typeof(T);
+            Type source = typeof(U);
             AssemblyName assemblyName = new AssemblyName("DataBuilderAssembly");
             AssemblyBuilder assemBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
             ModuleBuilder moduleBuilder = assemBuilder.DefineDynamicModule("DataBuilderModule");
-            TypeBuilder typeBuilder = moduleBuilder.DefineType("NewClass", TypeAttributes.Class, typeof(ProxyImplement));
-            typeBuilder.AddInterfaceImplementation(typeof(T));
-            var myMethodImpl = typeBuilder.DefineMethod("Add", ImplicitImplementation,
-                typeof(int), new[] { typeof(int), typeof(int) });
-            ILGenerator il = myMethodImpl.GetILGenerator();
-
-            //il.Emit(OpCodes.Ldc_I4_1);
-            //il.Emit(OpCodes.Newarr, typeof(object));
-            //il.Emit(OpCodes.Stloc, arr);
-            //il.Emit(OpCodes.Ldloc, arr);
-            //il.Emit(OpCodes.Ldc_I4_0);
-            //il.Emit(OpCodes.Ldc_I4, 500);
-            //il.Emit(OpCodes.Castclass, typeof(object));
-            //il.Emit(OpCodes.Stelem_I4);
-
-            //il.Emit(OpCodes.Ldloc, arr);
-            var mi = typeof(ProxyImplement).GetMethod("Intercept", new Type[] { });
-            il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Callvirt, mi);
-            //var mi = typeof(Console).GetMethod("WriteLine", new Type[] { });
-            //il.Emit(OpCodes.Pop);
-            il.Emit(OpCodes.Ldc_I4, 3);
-            il.Emit(OpCodes.Ret);
+            TypeBuilder typeBuilder = moduleBuilder.DefineType(target.Name + "_" + source.Name, TypeAttributes.Class, source);
+            typeBuilder.AddInterfaceImplementation(target);
+            foreach (var info in target.GetMethods())
+            {
+                var builder = typeBuilder.DefineMethod(info.Name, ImplicitImplementation,
+                    info.ReturnType, info.GetParameters().Select(pinfo => pinfo.ParameterType).ToArray());
+                Implement(builder, info);
+            }
+            
             Type type = typeBuilder.CreateType();
             return (T)type.GetConstructor(new Type[] { }).Invoke(new object[] { });
         }
@@ -64,6 +62,15 @@ namespace InterfaceProxy
                     il.Emit(OpCodes.Box, paramInfo.ParameterType);
                 il.Emit(OpCodes.Callvirt, typeof(List<object>).GetMethod("Add"));
             }
+
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldstr, builder.Name);
+            il.Emit(OpCodes.Ldloc_0);
+            if (builder.ReturnType == typeof(void))
+                il.Emit(OpCodes.Callvirt, interceptInfoVoid);
+            else
+                il.Emit(OpCodes.Callvirt, interceptInfo.MakeGenericMethod(info.ReturnType));
+            il.Emit(OpCodes.Ret);
         }
     }
 }
