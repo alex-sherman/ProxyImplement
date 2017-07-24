@@ -10,10 +10,10 @@ namespace UnitTest
         string Format(string derp, int second);
         void JustAVoid();
     }
-    public class MyImplementation : ProxyImplement
+    public class MyImplementation : IImplementor
     {
         public bool calledSomething = false;
-        public override object Intercept(string methodName, object[] args)
+        public object Intercept(string methodName, object[] args)
         {
             calledSomething = true;
             switch (methodName)
@@ -33,7 +33,7 @@ namespace UnitTest
         [TestMethod]
         public void TestAdd()
         {
-            var derp = ProxyImplement.HookUp<ITest, MyImplementation>();
+            var derp = ProxyImplement.HookUp<ITest, MyImplementation>(new MyImplementation());
             var result = derp.Add(1, 2);
             Assert.AreEqual(result, 3);
             result = derp.Add(4, 2);
@@ -42,15 +42,16 @@ namespace UnitTest
         [TestMethod]
         public void TestString()
         {
-            var derp = ProxyImplement.HookUp<ITest, MyImplementation>();
+            var derp = ProxyImplement.HookUp<ITest, MyImplementation>(new MyImplementation());
             Assert.AreEqual(derp.Format("pass{0}interface", 4), "pass4interface");
         }
         [TestMethod]
         public void TestVoid()
         {
-            var derp = ProxyImplement.HookUp<ITest, MyImplementation>();
+            var impl = new MyImplementation();
+            var derp = ProxyImplement.HookUp<ITest, MyImplementation>(impl);
             derp.JustAVoid();
-            Assert.IsTrue(((MyImplementation)derp).calledSomething);
+            Assert.IsTrue(impl.calledSomething);
         }
     }
 }

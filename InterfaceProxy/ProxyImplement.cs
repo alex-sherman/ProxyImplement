@@ -6,7 +6,12 @@ using System.Reflection.Emit;
 
 namespace InterfaceProxy
 {
-    public abstract class ProxyImplement
+    public interface IImplementor
+    {
+        object Intercept(string methodName, object[] args);
+    }
+
+    public class ProxyImplement
     {
         private const MethodAttributes ImplicitImplementation =
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig;
@@ -14,26 +19,27 @@ namespace InterfaceProxy
                 null, new Type[] { typeof(string), typeof(List<object>) }, null);
         static MethodInfo interceptInfoVoid = typeof(ProxyImplement).GetMethod("interceptVoid", BindingFlags.Instance | BindingFlags.NonPublic,
                 null, new Type[] { typeof(string), typeof(List<object>) }, null);
-        public abstract object Intercept(string methodName, object[] args);
+        public IImplementor Implementor { get; private set; }
         protected T intercept<T>(string methodName, List<object> args)
         {
-            object output = Intercept(methodName, args.ToArray());
+            object output = Implementor.Intercept(methodName, args.ToArray());
             if (output == null)
                 return default(T);
             return (T)output;
         }
         protected void interceptVoid(string methodName, List<object> args)
         {
-            Intercept(methodName, args.ToArray());
+            Implementor.Intercept(methodName, args.ToArray());
         }
-        public static T HookUp<T, U>() where U : ProxyImplement
+
+        public static T HookUp<T, U>(U implementor) where U : IImplementor
         {
             Type target = typeof(T);
             Type source = typeof(U);
             AssemblyName assemblyName = new AssemblyName("DataBuilderAssembly");
             AssemblyBuilder assemBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
             ModuleBuilder moduleBuilder = assemBuilder.DefineDynamicModule("DataBuilderModule");
-            TypeBuilder typeBuilder = moduleBuilder.DefineType(target.Name + "_" + source.Name, TypeAttributes.Class, source);
+            TypeBuilder typeBuilder = moduleBuilder.DefineType(target.Name + "_" + source.Name, TypeAttributes.Class, typeof(ProxyImplement));
             typeBuilder.AddInterfaceImplementation(target);
             foreach (var info in target.GetMethods())
             {
@@ -41,9 +47,11 @@ namespace InterfaceProxy
                     info.ReturnType, info.GetParameters().Select(pinfo => pinfo.ParameterType).ToArray());
                 Implement(builder, info);
             }
-            
+
             Type type = typeBuilder.CreateType();
-            return (T)type.GetConstructor(new Type[] { }).Invoke(new object[] { });
+            var output = (T)type.GetConstructor(new Type[] { }).Invoke(new object[] { });
+            (output as ProxyImplement).Implementor = implementor;
+            return output;
         }
 
         static void Implement(MethodBuilder builder, MethodInfo info)
@@ -53,7 +61,7 @@ namespace InterfaceProxy
             il.Emit(OpCodes.Newobj, typeof(List<object>).GetConstructor(Type.EmptyTypes));
             il.Emit(OpCodes.Stloc_0);
             var paramInfos = info.GetParameters();
-            for(int i = 0; i < paramInfos.Length; i++)
+            for (int i = 0; i < paramInfos.Length; i++)
             {
                 var paramInfo = paramInfos[i];
                 il.Emit(OpCodes.Ldloc_0);
